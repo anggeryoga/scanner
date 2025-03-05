@@ -18,7 +18,7 @@ from rich.prompt import Confirm
 
 # Advanced logging configuration
 logging.basicConfig(
-    level=logging.INFO, 
+    level=logging.INFO,
     format="%(asctime)s - [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
@@ -96,10 +96,17 @@ class AdvancedWebScanner:
                 ]
 
                 for description, task in scan_tasks:
-                    progress.add_task(f"Scanning: {description}")
-                    result = await task
-                    if result:
-                        vulnerabilities[description] = result
+                    task_id = progress.add_task(f"Scanning: {description}")
+                    try:
+                        result = await task
+                        if result:
+                            vulnerabilities[description] = result
+                    except Exception as e:
+                        logger.error(f"Error during {description} scan: {e}")
+                        progress.log(f"[red]Error during {description} scan: {e}[/red]")
+                    finally:
+                        progress.remove_task(task_id)
+
 
         self.display_results(vulnerabilities)
 
@@ -171,15 +178,74 @@ class AdvancedWebScanner:
 
         for payload in payloads:
             params = {"id": payload, "search": payload}
-            async with session.get(self.target, params=params) as response:
-                content = await response.text()
-                if any(keyword in content.lower() for keyword in ["mysql", "syntax error", "sql syntax"]):
-                    vulnerable_endpoints.append(f"Endpoint: {response.url}")
-        
+            try:
+                async with session.get(self.target, params=params) as response:
+                    content = await response.text()
+                    if any(keyword in content.lower() for keyword in ["mysql", "syntax error", "sql syntax"]):
+                        vulnerable_endpoints.append(f"Endpoint: {response.url}")
+            except aiohttp.ClientError as e:
+                logger.error(f"Error during SQL Injection scan: {e}")
+
         return vulnerable_endpoints or None
 
-    # Other scanning methods remain similar to the current implementation, 
-    # with improvements in error handling and detection techniques
+    async def scan_xss(self, session: aiohttp.ClientSession) -> Optional[List[str]]:
+        """
+        Advanced XSS detection.
+        
+        Returns:
+            Optional[List[str]]: List of vulnerable endpoints
+        """
+        payloads = [
+            "<script>alert('XSS')</script>",
+            "<img src=x onerror=alert('XSS')>",
+            "javascript:alert('XSS')"
+        ]
+        vulnerable_endpoints = []
+
+        for payload in payloads:
+            # Try injecting the payload into various parameters
+            params = {"q": payload, "search": payload, "input": payload}
+            try:
+                async with session.get(self.target, params=params) as response:
+                    content = await response.text()
+                    if payload in content:
+                        vulnerable_endpoints.append(f"Endpoint: {response.url}")
+            except aiohttp.ClientError as e:
+                logger.error(f"Error during XSS scan: {e}")
+
+        return vulnerable_endpoints or None
+
+    async def scan_lfi(self, session: aiohttp.ClientSession) -> Optional[List[str]]:
+        """
+        Placeholder for LFI vulnerability scanning.  Implement the actual logic here.
+        """
+        # TODO: Implement LFI scanning logic
+        logger.warning("LFI scanning not fully implemented yet.")
+        return None
+
+    async def scan_ssrf(self, session: aiohttp.ClientSession) -> Optional[List[str]]:
+        """
+        Placeholder for SSRF vulnerability scanning. Implement the actual logic here.
+        """
+        # TODO: Implement SSRF scanning logic
+        logger.warning("SSRF scanning not fully implemented yet.")
+        return None
+
+    async def scan_sensitive_files(self, session: aiohttp.ClientSession) -> Optional[List[str]]:
+        """
+        Placeholder for sensitive files scanning. Implement the actual logic here.
+        """
+        # TODO: Implement sensitive files scanning logic
+        logger.warning("Sensitive files scanning not fully implemented yet.")
+        return None
+
+    async def scan_open_ports(self) -> Optional[List[str]]:
+        """
+        Placeholder for open ports scanning. Implement the actual logic here.
+        """
+        # TODO: Implement open ports scanning logic
+        logger.warning("Open ports scanning not fully implemented yet.")
+        return None
 
 def main():
     """
@@ -191,14 +257,14 @@ def main():
     )
     parser.add_argument("target", help="Target URL or IP address")
     parser.add_argument(
-        "-v", "--verbose", 
-        action="store_true", 
+        "-v", "--verbose",
+        action="store_true",
         help="Enable verbose logging and debugging"
     )
     parser.add_argument(
-        "--timeout", 
-        type=int, 
-        default=15, 
+        "--timeout",
+        type=int,
+        default=15,
         help="Custom request timeout in seconds"
     )
     
